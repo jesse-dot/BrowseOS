@@ -55,13 +55,16 @@
                 <button onclick="toggleStartMenu()" class="w-10 h-10 rounded-lg hover:bg-white/50 flex items-center justify-center text-xl text-blue-600 transition shadow-sm bg-white/30 border border-white/50">
                     <i class="fab fa-windows"></i>
                 </button>
+                <button onclick="openUserManager()" class="w-10 h-10 rounded-lg hover:bg-white/50 flex items-center justify-center text-lg text-emerald-600 transition shadow-sm bg-white/30 border border-white/50" title="Switch user">
+                    <i class="fas fa-user"></i>
+                </button>
 
                 <!-- Start Menu (Hidden by default) -->
                 <div id="start-menu" class="hidden absolute bottom-14 left-0 w-64 bg-white/90 backdrop-blur-2xl border border-white/50 shadow-2xl rounded-xl overflow-hidden flex flex-col p-2 z-[10000]">
-                    <div class="p-4 flex items-center gap-3 border-b border-gray-200/50">
+                <div class="p-4 flex items-center gap-3 border-b border-gray-200/50">
                         <div class="w-10 h-10 rounded-full bg-blue-100 flex items-center justify-center text-blue-600"><i class="fas fa-user"></i></div>
                         <div>
-                            <div class="font-bold text-sm">Guest User</div>
+                            <div id="active-user-label" class="font-bold text-sm">Guest User</div>
                             <div class="text-xs text-gray-500">WebOS Local</div>
                         </div>
                     </div>
@@ -69,6 +72,7 @@
                         <button onclick="openFileManager(); toggleStartMenu();" class="text-left px-4 py-2 hover:bg-blue-50 rounded-lg text-sm flex items-center gap-3"><i class="fas fa-folder text-blue-500 w-5"></i> File Manager</button>
                         <button onclick="openBrowser(); toggleStartMenu();" class="text-left px-4 py-2 hover:bg-blue-50 rounded-lg text-sm flex items-center gap-3"><i class="fas fa-compass text-indigo-500 w-5"></i> Web Browser</button>
                         <button onclick="openAppStore(); toggleStartMenu();" class="text-left px-4 py-2 hover:bg-blue-50 rounded-lg text-sm flex items-center gap-3"><i class="fas fa-store text-orange-500 w-5"></i> App Store</button>
+                        <button onclick="openUserManager(); toggleStartMenu();" class="text-left px-4 py-2 hover:bg-blue-50 rounded-lg text-sm flex items-center gap-3"><i class="fas fa-users text-emerald-500 w-5"></i> Users</button>
                     </div>
                 </div>
             </div>
@@ -88,10 +92,17 @@
         // --- 1. CORE OS STATE & FALLBACK LOGIC ---
         let zIndexCounter = 100;
         let useLocalStorageFallback = false;
+        const DEFAULT_USER = 'guest';
+        const ACTIVE_USER_KEY = 'webos-active-user';
+        const KNOWN_USERS_KEY = 'webos-known-users';
+        let currentUser = DEFAULT_USER;
+        let knownUsers = new Set([DEFAULT_USER]);
         
         // In-memory file system used if the Node.js server isn't running
         let inMemoryFiles = {
-            'Readme.txt': 'Welcome to WebOS!\n\nThis system uses a Node.js backend to save files directly to your hard drive.\n\nSince you might be viewing this in a live preview without the backend running, we have activated the "In-Memory" fallback mode so you can still test out the UI!\n\nTry opening the App Store or browsing the web.'
+            guest: {
+                'Readme.txt': 'Welcome to WebOS!\n\nThis system uses a Node.js backend to save files directly to your hard drive.\n\nSince you might be viewing this in a live preview without the backend running, we have activated the "In-Memory" fallback mode so you can still test out the UI!\n\nTry opening the App Store or browsing the web.'
+            }
         };
 
         // Check if backend API is accessible
@@ -103,8 +114,107 @@
                 console.warn("Node.js backend not detected. Switching to browser memory storage.");
                 useLocalStorageFallback = true;
             }
+            return !useLocalStorageFallback;
         }
-        checkBackend();
+
+        function normalizeUserName(name) {
+            const safeName = String(name || DEFAULT_USER)
+                .trim()
+                .replace(/[^a-zA-Z0-9._-]+/g, '-')
+                .replace(/^-+|-+$/g, '');
+            return safeName || DEFAULT_USER;
+        }
+
+        function persistKnownUsers() {
+            localStorage.setItem(KNOWN_USERS_KEY, JSON.stringify([...knownUsers].sort()));
+        }
+
+        function loadKnownUsers() {
+            try {
+                const stored = JSON.parse(localStorage.getItem(KNOWN_USERS_KEY) || '[]');
+                stored.forEach(user => knownUsers.add(normalizeUserName(user)));
+            } catch (e) {}
+        }
+
+        function getUserHeaders() {
+            return { 'X-WebOS-User': currentUser };
+        }
+
+        function getJsonUserHeaders() {
+            return { ...getUserHeaders(), 'Content-Type': 'application/json' };
+        }
+
+        function getInMemoryUserStore() {
+            if (!inMemoryFiles[currentUser]) inMemoryFiles[currentUser] = {};
+            return inMemoryFiles[currentUser];
+        }
+
+        async function apiGetUsers() {
+            if (useLocalStorageFallback) return [...knownUsers].sort();
+            const res = await fetch('/api/users');
+            if (!res.ok) throw new Error('API Error');
+            const data = await res.json();
+            return Array.isArray(data.users) ? data.users : [];
+        }
+
+        async function apiEnsureUser(user) {
+            const normalized = normalizeUserName(user);
+            knownUsers.add(normalized);
+            persistKnownUsers();
+            if (useLocalStorageFallback) return normalized;
+            const res = await fetch('/api/users', {
+                method: 'POST',
+                headers: getJsonUserHeaders(),
+                body: JSON.stringify({ username: normalized })
+            });
+            if (!res.ok) throw new Error('API Error');
+            return normalized;
+        }
+
+        async function initializeUserState() {
+            loadKnownUsers();
+            const storedUser = normalizeUserName(localStorage.getItem(ACTIVE_USER_KEY) || DEFAULT_USER);
+            currentUser = storedUser;
+            knownUsers.add(currentUser);
+            persistKnownUsers();
+
+            if (!useLocalStorageFallback) {
+                try {
+                    const users = await apiGetUsers();
+                    users.forEach(user => knownUsers.add(normalizeUserName(user)));
+                    await apiEnsureUser(currentUser);
+                } catch (e) {
+                    console.warn('User sync failed; using browser fallback.');
+                    useLocalStorageFallback = true;
+                }
+            }
+
+            updateUserLabels();
+        }
+
+        async function setActiveUser(userName) {
+            const normalized = normalizeUserName(userName);
+            currentUser = normalized;
+            localStorage.setItem(ACTIVE_USER_KEY, normalized);
+            knownUsers.add(normalized);
+            persistKnownUsers();
+            if (!useLocalStorageFallback) {
+                await apiEnsureUser(normalized);
+            }
+            updateUserLabels();
+            if (document.getElementById('app-filemanager')) refreshFileManager();
+            if (document.getElementById('app-users')) refreshUserManager();
+        }
+
+        function updateUserLabels() {
+            const label = document.getElementById('active-user-label');
+            if (label) label.innerText = currentUser;
+        }
+
+        (async () => {
+            await checkBackend();
+            await initializeUserState();
+        })();
 
         // --- 2. WINDOW MANAGER ---
         function createWindow(id, title, content, x = 100, y = 100, width = 600, height = 450) {
@@ -270,27 +380,27 @@
 
         // File System API wrappers
         async function apiGetFiles() {
-            if(useLocalStorageFallback) return Object.keys(inMemoryFiles);
-            const res = await fetch('/api/files');
+            if(useLocalStorageFallback) return Object.keys(getInMemoryUserStore());
+            const res = await fetch('/api/files', { headers: getUserHeaders() });
             if(!res.ok) throw new Error('API Error');
             return await res.json();
         }
         
         async function apiGetFileContent(name) {
-            if(useLocalStorageFallback) return inMemoryFiles[name] || '';
-            const res = await fetch('/api/files/' + name);
+            if(useLocalStorageFallback) return getInMemoryUserStore()[name] || '';
+            const res = await fetch('/api/files/' + encodeURIComponent(name), { headers: getUserHeaders() });
             if(!res.ok) throw new Error('API Error');
             return await res.text();
         }
 
         async function apiSaveFile(name, content) {
             if(useLocalStorageFallback) {
-                inMemoryFiles[name] = content;
+                getInMemoryUserStore()[name] = content;
                 return true;
             }
-            const res = await fetch('/api/files/' + name, {
+            const res = await fetch('/api/files/' + encodeURIComponent(name), {
                 method: 'POST',
-                headers: {'Content-Type': 'application/json'},
+                headers: getJsonUserHeaders(),
                 body: JSON.stringify({content})
             });
             return res.ok;
@@ -298,11 +408,74 @@
 
         async function apiDeleteFile(name) {
             if(useLocalStorageFallback) {
-                delete inMemoryFiles[name];
+                delete getInMemoryUserStore()[name];
                 return true;
             }
-            const res = await fetch('/api/files/' + name, { method: 'DELETE' });
+            const res = await fetch('/api/files/' + encodeURIComponent(name), {
+                method: 'DELETE',
+                headers: getUserHeaders()
+            });
             return res.ok;
+        }
+
+        async function openUserManager() {
+            const isCreated = createWindow('app-users', '<i class="fas fa-users text-emerald-500"></i> Users', `
+                <div class="flex flex-col h-full bg-gray-50">
+                    <div class="p-4 border-b border-gray-200 bg-white">
+                        <h2 class="text-lg font-bold text-gray-800">Multi-User Support</h2>
+                        <p class="text-sm text-gray-500">Switch profiles to keep files separate.</p>
+                    </div>
+                    <div class="p-4 flex flex-col gap-4">
+                        <div class="bg-white rounded-xl border border-gray-200 p-4">
+                            <div class="text-xs font-semibold uppercase tracking-wide text-gray-500">Active user</div>
+                            <div id="user-manager-active" class="mt-1 text-xl font-bold text-gray-800"></div>
+                        </div>
+                        <div class="bg-white rounded-xl border border-gray-200 p-4 flex gap-2 items-end">
+                            <div class="flex-1">
+                                <label class="block text-xs font-semibold uppercase tracking-wide text-gray-500 mb-2">Switch or create user</label>
+                                <input id="user-manager-input" type="text" class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500" placeholder="alex">
+                            </div>
+                            <button onclick="applyUserManagerSelection()" class="px-4 py-2 bg-emerald-500 hover:bg-emerald-600 text-white rounded-lg text-sm font-medium">Apply</button>
+                        </div>
+                        <div class="bg-white rounded-xl border border-gray-200 p-4">
+                            <div class="text-xs font-semibold uppercase tracking-wide text-gray-500 mb-3">Known users</div>
+                            <div id="user-manager-list" class="flex flex-wrap gap-2"></div>
+                        </div>
+                    </div>
+                </div>
+            `, 220, 120, 520, 420);
+            if (isCreated) refreshUserManager();
+        }
+
+        async function refreshUserManager() {
+            const active = document.getElementById('user-manager-active');
+            const list = document.getElementById('user-manager-list');
+            const input = document.getElementById('user-manager-input');
+            if (active) active.innerText = currentUser;
+            if (input) input.value = currentUser;
+            if (!list) return;
+
+            let users = [...knownUsers].sort();
+            if (!useLocalStorageFallback) {
+                try {
+                    users = await apiGetUsers();
+                    users.forEach(user => knownUsers.add(normalizeUserName(user)));
+                    persistKnownUsers();
+                } catch (e) {}
+            }
+
+            list.innerHTML = users.map(user => `
+                <button onclick="setActiveUser('${user.replace(/'/g, "\\'")}')" class="px-3 py-1.5 rounded-full border text-sm ${user === currentUser ? 'bg-emerald-500 text-white border-emerald-500' : 'bg-gray-50 hover:bg-gray-100 text-gray-700 border-gray-200'}">${user}</button>
+            `).join('');
+        }
+
+        async function applyUserManagerSelection() {
+            const input = document.getElementById('user-manager-input');
+            if (!input) return;
+            const userName = input.value.trim();
+            if (!userName) return;
+            await setActiveUser(userName);
+            refreshUserManager();
         }
 
         // File Manager App
@@ -317,7 +490,7 @@
                         <div class="col-span-full text-center text-gray-400 py-10"><i class="fas fa-circle-notch fa-spin text-2xl"></i></div>
                     </div>
                     <div class="bg-gray-200/50 border-t border-gray-300 p-1 px-3 text-[10px] text-gray-500" id="fm-status">
-                        Reading disk...
+                        Reading disk for guest...
                     </div>
                 </div>
             `);
@@ -331,7 +504,7 @@
 
             try {
                 const files = await apiGetFiles();
-                status.innerText = `${files.length} item(s) found. ${useLocalStorageFallback ? '(In-Memory Mode)' : '(Disk Mode)'}`;
+                status.innerText = `${files.length} item(s) found for ${currentUser}. ${useLocalStorageFallback ? '(In-Memory Mode)' : '(Disk Mode)'}`;
                 
                 if(files.length === 0) {
                     list.innerHTML = '<div class="col-span-full text-center text-gray-400 py-10 text-sm">Directory is empty. Create a new file!</div>';
