@@ -1,0 +1,519 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Web OS</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        /* Custom scrollbar for inner app windows */
+        ::-webkit-scrollbar { width: 8px; height: 8px; }
+        ::-webkit-scrollbar-track { background: #f1f1f1; }
+        ::-webkit-scrollbar-thumb { background: #c1c1c1; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: #a8a8a8; }
+        body { margin: 0; overflow: hidden; }
+    </style>
+</head>
+<body class="text-gray-800 font-sans">
+
+    <!-- Desktop Environment -->
+    <div class="h-screen w-screen overflow-hidden bg-cover bg-center bg-no-repeat relative select-none flex flex-col" 
+         style="background-image: url('https://images.unsplash.com/photo-1506744626753-1fa44f4a3e7e?ixlib=rb-4.0.3&auto=format&fit=crop&w=1920&q=80');">
+        
+        <!-- App Windows Container -->
+        <div id="desktop" class="flex-1 relative w-full h-full">
+            
+            <!-- Desktop Icons -->
+            <div class="absolute top-0 left-0 p-6 flex flex-col gap-6 z-10">
+                <div class="flex flex-col items-center gap-1 cursor-pointer group w-20" onclick="openFileManager()">
+                    <div class="w-14 h-14 bg-blue-500/80 backdrop-blur-sm rounded-xl flex items-center justify-center text-white text-3xl shadow-lg border border-white/20 group-hover:bg-blue-500 transition">
+                        <i class="fas fa-folder"></i>
+                    </div>
+                    <span class="text-white text-xs font-medium text-center drop-shadow-[0_1px_2px_rgba(0,0,0,0.8)]">Files</span>
+                </div>
+                
+                <div class="flex flex-col items-center gap-1 cursor-pointer group w-20" onclick="openBrowser()">
+                    <div class="w-14 h-14 bg-indigo-500/80 backdrop-blur-sm rounded-xl flex items-center justify-center text-white text-3xl shadow-lg border border-white/20 group-hover:bg-indigo-500 transition">
+                        <i class="fas fa-compass"></i>
+                    </div>
+                    <span class="text-white text-xs font-medium text-center drop-shadow-[0_1px_2px_rgba(0,0,0,0.8)]">Browser</span>
+                </div>
+                
+                <div class="flex flex-col items-center gap-1 cursor-pointer group w-20" onclick="openAppStore()">
+                    <div class="w-14 h-14 bg-gradient-to-br from-pink-500 to-orange-400 backdrop-blur-sm rounded-xl flex items-center justify-center text-white text-3xl shadow-lg border border-white/20 group-hover:scale-105 transition">
+                        <i class="fas fa-store"></i>
+                    </div>
+                    <span class="text-white text-xs font-medium text-center drop-shadow-[0_1px_2px_rgba(0,0,0,0.8)]">App Store</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Taskbar -->
+        <div class="w-full h-12 bg-white/70 backdrop-blur-xl border-t border-white/40 flex items-center px-3 justify-between z-[9999] shadow-[0_-5px_20px_rgba(0,0,0,0.1)]">
+            <div class="flex items-center gap-2 relative">
+                <button onclick="toggleStartMenu()" class="w-10 h-10 rounded-lg hover:bg-white/50 flex items-center justify-center text-xl text-blue-600 transition shadow-sm bg-white/30 border border-white/50">
+                    <i class="fab fa-windows"></i>
+                </button>
+
+                <!-- Start Menu (Hidden by default) -->
+                <div id="start-menu" class="hidden absolute bottom-14 left-0 w-64 bg-white/90 backdrop-blur-2xl border border-white/50 shadow-2xl rounded-xl overflow-hidden flex flex-col p-2 z-[10000]">
+                    <div class="p-4 flex items-center gap-3 border-b border-gray-200/50">
+                        <div class="w-10 h-10 rounded-full bg-blue-100 flex items-center justify-center text-blue-600"><i class="fas fa-user"></i></div>
+                        <div>
+                            <div class="font-bold text-sm">Guest User</div>
+                            <div class="text-xs text-gray-500">WebOS Local</div>
+                        </div>
+                    </div>
+                    <div class="py-2 flex flex-col gap-1">
+                        <button onclick="openFileManager(); toggleStartMenu();" class="text-left px-4 py-2 hover:bg-blue-50 rounded-lg text-sm flex items-center gap-3"><i class="fas fa-folder text-blue-500 w-5"></i> File Manager</button>
+                        <button onclick="openBrowser(); toggleStartMenu();" class="text-left px-4 py-2 hover:bg-blue-50 rounded-lg text-sm flex items-center gap-3"><i class="fas fa-compass text-indigo-500 w-5"></i> Web Browser</button>
+                        <button onclick="openAppStore(); toggleStartMenu();" class="text-left px-4 py-2 hover:bg-blue-50 rounded-lg text-sm flex items-center gap-3"><i class="fas fa-store text-orange-500 w-5"></i> App Store</button>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="text-sm font-semibold text-gray-800 pr-2 flex items-center gap-4">
+                <div class="flex gap-3 text-gray-600">
+                    <i class="fas fa-wifi"></i>
+                    <i class="fas fa-volume-up"></i>
+                </div>
+                <span id="clock" class="hover:bg-white/50 px-2 py-1 rounded cursor-default">12:00 PM</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- Core Javascript for OS Logic -->
+    <script>
+        // --- 1. CORE OS STATE & FALLBACK LOGIC ---
+        let zIndexCounter = 100;
+        let useLocalStorageFallback = false;
+        
+        // In-memory file system used if the Node.js server isn't running
+        let inMemoryFiles = {
+            'Readme.txt': 'Welcome to WebOS!\n\nThis system uses a Node.js backend to save files directly to your hard drive.\n\nSince you might be viewing this in a live preview without the backend running, we have activated the "In-Memory" fallback mode so you can still test out the UI!\n\nTry opening the App Store or browsing the web.'
+        };
+
+        // Check if backend API is accessible
+        async function checkBackend() {
+            try {
+                const res = await fetch('/api/files');
+                if (!res.ok) useLocalStorageFallback = true;
+            } catch (e) {
+                console.warn("Node.js backend not detected. Switching to browser memory storage.");
+                useLocalStorageFallback = true;
+            }
+        }
+        checkBackend();
+
+        // --- 2. WINDOW MANAGER ---
+        function createWindow(id, title, content, x = 100, y = 100, width = 600, height = 450) {
+            if(document.getElementById(id)) {
+                bringToFront(document.getElementById(id));
+                return null; // Already exists
+            }
+
+            const win = document.createElement('div');
+            win.id = id;
+            win.className = `absolute bg-white border border-gray-300 shadow-2xl rounded-xl overflow-hidden flex flex-col z-[${zIndexCounter}] transition-transform duration-100 ease-out`;
+            win.style.left = `${x}px`;
+            win.style.top = `${y}px`;
+            win.style.width = `${width}px`;
+            win.style.height = `${height}px`;
+            
+            // Adjust position slightly to cascade windows
+            const offset = (zIndexCounter % 10) * 20;
+            win.style.left = `${x + offset}px`;
+            win.style.top = `${y + offset}px`;
+            bringToFront(win);
+
+            const header = document.createElement('div');
+            header.className = `bg-gray-100 px-4 py-2 flex justify-between items-center cursor-move select-none border-b border-gray-200`;
+            header.innerHTML = `
+                <div class="font-semibold text-gray-700 text-sm flex items-center gap-2 pointer-events-none">
+                   ${title}
+                </div>
+                <div class="flex gap-2">
+                    <button onclick="closeWindow('${id}')" class="w-3.5 h-3.5 rounded-full bg-red-500 hover:bg-red-600 flex items-center justify-center focus:outline-none shadow-inner"></button>
+                    <button onclick="maximizeWindow('${id}')" class="w-3.5 h-3.5 rounded-full bg-green-500 hover:bg-green-600 flex items-center justify-center focus:outline-none shadow-inner"></button>
+                </div>
+            `;
+
+            const body = document.createElement('div');
+            body.className = `flex-1 bg-white relative overflow-hidden flex flex-col`;
+            body.innerHTML = content;
+
+            win.appendChild(header);
+            win.appendChild(body);
+            document.getElementById('desktop').appendChild(win);
+
+            win.addEventListener('mousedown', () => bringToFront(win));
+            makeDraggable(win, header);
+
+            // Add subtle appear animation
+            win.animate([{ opacity: 0, transform: 'scale(0.95)' }, { opacity: 1, transform: 'scale(1)' }], { duration: 150, easing: 'ease-out' });
+
+            return body;
+        }
+
+        function bringToFront(element) {
+            zIndexCounter++;
+            element.style.zIndex = zIndexCounter;
+        }
+
+        function closeWindow(id) {
+            const win = document.getElementById(id);
+            if(win) {
+                win.style.opacity = '0';
+                win.style.transform = 'scale(0.95)';
+                setTimeout(() => win.remove(), 100);
+            }
+        }
+
+        function maximizeWindow(id) {
+            const win = document.getElementById(id);
+            if(win.dataset.maximized === 'true') {
+                win.style.width = win.dataset.oldWidth;
+                win.style.height = win.dataset.oldHeight;
+                win.style.top = win.dataset.oldTop;
+                win.style.left = win.dataset.oldLeft;
+                win.dataset.maximized = 'false';
+            } else {
+                win.dataset.oldWidth = win.style.width;
+                win.dataset.oldHeight = win.style.height;
+                win.dataset.oldTop = win.style.top;
+                win.dataset.oldLeft = win.style.left;
+                
+                win.style.width = '100%';
+                win.style.height = '100%';
+                win.style.top = '0px';
+                win.style.left = '0px';
+                win.dataset.maximized = 'true';
+            }
+        }
+
+        function makeDraggable(element, handle) {
+            let pos1 = 0, pos2 = 0, pos3 = 0, pos4 = 0;
+            handle.onmousedown = (e) => {
+                if(element.dataset.maximized === 'true') return;
+                e.preventDefault();
+                pos3 = e.clientX;
+                pos4 = e.clientY;
+                document.onmouseup = closeDragElement;
+                document.onmousemove = elementDrag;
+                
+                // Add iframe overlay so mouse events don't get swallowed by iframes while dragging
+                const iframeOverlay = document.createElement('div');
+                iframeOverlay.id = 'iframe-drag-overlay';
+                iframeOverlay.className = 'absolute inset-0 z-[999999]';
+                document.getElementById('desktop').appendChild(iframeOverlay);
+            };
+
+            function elementDrag(e) {
+                e.preventDefault();
+                pos1 = pos3 - e.clientX;
+                pos2 = pos4 - e.clientY;
+                pos3 = e.clientX;
+                pos4 = e.clientY;
+                element.style.top = (element.offsetTop - pos2) + "px";
+                element.style.left = (element.offsetLeft - pos1) + "px";
+            }
+
+            function closeDragElement() {
+                document.onmouseup = null;
+                document.onmousemove = null;
+                const overlay = document.getElementById('iframe-drag-overlay');
+                if(overlay) overlay.remove();
+            }
+        }
+
+        // --- 3. CUSTOM MODAL (Replaces Alerts/Confirms) ---
+        function showModal(title, message, onConfirm = null) {
+            const modalId = 'modal-' + Date.now();
+            const modal = document.createElement('div');
+            modal.id = modalId;
+            modal.className = 'fixed inset-0 bg-black/40 backdrop-blur-sm z-[100000] flex items-center justify-center opacity-0 transition-opacity duration-200';
+            
+            modal.innerHTML = `
+                <div class="bg-white rounded-xl shadow-2xl p-6 w-80 flex flex-col gap-4 transform scale-95 transition-transform duration-200" id="${modalId}-box">
+                    <h3 class="text-lg font-bold text-gray-800">${title}</h3>
+                    <p class="text-sm text-gray-600 whitespace-pre-wrap">${message}</p>
+                    <div class="flex justify-end gap-2 mt-4">
+                        ${onConfirm ? `<button onclick="closeModal('${modalId}')" class="px-4 py-2 bg-gray-100 hover:bg-gray-200 rounded-lg text-sm font-medium text-gray-700 transition">Cancel</button>` : ''}
+                        <button id="${modalId}-btn" class="px-4 py-2 bg-blue-500 hover:bg-blue-600 rounded-lg text-sm font-medium text-white shadow-md transition">${onConfirm ? 'Confirm' : 'OK'}</button>
+                    </div>
+                </div>
+            `;
+            document.body.appendChild(modal);
+            
+            // Animate in
+            requestAnimationFrame(() => {
+                modal.classList.remove('opacity-0');
+                document.getElementById(`${modalId}-box`).classList.remove('scale-95');
+            });
+
+            document.getElementById(`${modalId}-btn`).onclick = () => {
+                if(onConfirm) onConfirm();
+                closeModal(modalId);
+            };
+        }
+
+        function closeModal(id) {
+            const modal = document.getElementById(id);
+            if(modal) {
+                modal.classList.add('opacity-0');
+                setTimeout(() => modal.remove(), 200);
+            }
+        }
+
+        // --- 4. OS APPS ---
+
+        // File System API wrappers
+        async function apiGetFiles() {
+            if(useLocalStorageFallback) return Object.keys(inMemoryFiles);
+            const res = await fetch('/api/files');
+            if(!res.ok) throw new Error('API Error');
+            return await res.json();
+        }
+        
+        async function apiGetFileContent(name) {
+            if(useLocalStorageFallback) return inMemoryFiles[name] || '';
+            const res = await fetch('/api/files/' + name);
+            if(!res.ok) throw new Error('API Error');
+            return await res.text();
+        }
+
+        async function apiSaveFile(name, content) {
+            if(useLocalStorageFallback) {
+                inMemoryFiles[name] = content;
+                return true;
+            }
+            const res = await fetch('/api/files/' + name, {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({content})
+            });
+            return res.ok;
+        }
+
+        async function apiDeleteFile(name) {
+            if(useLocalStorageFallback) {
+                delete inMemoryFiles[name];
+                return true;
+            }
+            const res = await fetch('/api/files/' + name, { method: 'DELETE' });
+            return res.ok;
+        }
+
+        // File Manager App
+        async function openFileManager() {
+            const isCreated = createWindow('app-filemanager', '<i class="fas fa-folder text-blue-500"></i> Disk Files', `
+                <div class="flex flex-col h-full bg-gray-50">
+                    <div class="bg-white p-2 border-b border-gray-200 flex gap-2 shadow-sm z-10">
+                        <button onclick="openTextEditor()" class="px-3 py-1.5 bg-blue-50 text-blue-600 rounded-md text-sm font-medium hover:bg-blue-100 transition flex items-center gap-2"><i class="fas fa-file-medical"></i> New Text File</button>
+                        <button onclick="refreshFileManager()" class="px-3 py-1.5 bg-white border border-gray-200 text-gray-700 rounded-md text-sm font-medium hover:bg-gray-50 transition flex items-center gap-2"><i class="fas fa-sync-alt"></i> Refresh</button>
+                    </div>
+                    <div id="file-list" class="p-4 grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 gap-4 flex-1 overflow-y-auto content-start">
+                        <div class="col-span-full text-center text-gray-400 py-10"><i class="fas fa-circle-notch fa-spin text-2xl"></i></div>
+                    </div>
+                    <div class="bg-gray-200/50 border-t border-gray-300 p-1 px-3 text-[10px] text-gray-500" id="fm-status">
+                        Reading disk...
+                    </div>
+                </div>
+            `);
+            if(isCreated) refreshFileManager();
+        }
+
+        async function refreshFileManager() {
+            const list = document.getElementById('file-list');
+            const status = document.getElementById('fm-status');
+            if(!list) return;
+
+            try {
+                const files = await apiGetFiles();
+                status.innerText = `${files.length} item(s) found. ${useLocalStorageFallback ? '(In-Memory Mode)' : '(Disk Mode)'}`;
+                
+                if(files.length === 0) {
+                    list.innerHTML = '<div class="col-span-full text-center text-gray-400 py-10 text-sm">Directory is empty. Create a new file!</div>';
+                    return;
+                }
+
+                list.innerHTML = '';
+                files.forEach(f => {
+                    const el = document.createElement('div');
+                    el.className = 'flex flex-col items-center gap-2 p-3 hover:bg-blue-100 rounded-lg cursor-pointer group relative border border-transparent hover:border-blue-200 transition';
+                    el.innerHTML = `
+                        <i class="fas fa-file-alt text-4xl text-blue-300 drop-shadow-sm group-hover:text-blue-400"></i>
+                        <span class="text-xs text-center break-all font-medium text-gray-700">${f}</span>
+                        <button onclick="promptDeleteFile('${f}', event)" class="absolute -top-1 -right-1 text-red-500 opacity-0 group-hover:opacity-100 hover:text-red-700 bg-white rounded-full w-6 h-6 shadow-md flex items-center justify-center transition"><i class="fas fa-trash text-xs"></i></button>
+                    `;
+                    el.onclick = (e) => {
+                        if(!e.target.closest('button')) openTextEditor(f);
+                    }
+                    list.appendChild(el);
+                });
+            } catch(e) {
+                list.innerHTML = `<div class="col-span-full text-center text-red-500 py-10 text-sm">Error loading files.</div>`;
+            }
+        }
+
+        function promptDeleteFile(name, event) {
+            event.stopPropagation();
+            showModal('Delete File', `Are you sure you want to permanently delete "${name}"?`, async () => {
+                await apiDeleteFile(name);
+                refreshFileManager();
+            });
+        }
+
+        // Text Editor App
+        async function openTextEditor(filename = null) {
+            const id = filename ? `app-editor-${filename.replace(/[^a-zA-Z0-9]/g,'')}` : `app-editor-new-${Date.now()}`;
+            const title = filename ? filename : 'Untitled';
+            
+            let initialContent = '';
+            if(filename) {
+                try { initialContent = await apiGetFileContent(filename); } catch(e) {}
+            }
+
+            createWindow(id, `<i class="fas fa-edit text-blue-500"></i> Editor - ${title}`, `
+                <div class="flex flex-col h-full bg-white">
+                    <div class="bg-gray-100 p-2 border-b border-gray-200 flex gap-2 items-center">
+                        <input type="text" id="${id}-filename" value="${title}" class="px-3 py-1.5 border border-gray-300 rounded-md text-sm w-48 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500" placeholder="filename.txt">
+                        <button onclick="saveTextFile('${id}')" class="px-4 py-1.5 bg-blue-500 text-white rounded-md text-sm font-medium shadow-sm hover:bg-blue-600 transition flex items-center gap-2"><i class="fas fa-save"></i> Save</button>
+                        <span id="${id}-status" class="text-xs font-medium text-gray-500 ml-2 transition-opacity"></span>
+                    </div>
+                    <textarea id="${id}-content" class="flex-1 w-full p-4 resize-none focus:outline-none font-mono text-sm bg-gray-50/50 leading-relaxed">${initialContent}</textarea>
+                </div>
+            `, 250, 150, 550, 400);
+        }
+
+        async function saveTextFile(id) {
+            const filenameInput = document.getElementById(`${id}-filename`);
+            let filename = filenameInput.value.trim();
+            if(!filename) filename = 'Untitled.txt';
+            // Ensure simple extension if none provided
+            if(!filename.includes('.')) filename += '.txt';
+            filenameInput.value = filename; // update UI
+
+            const content = document.getElementById(`${id}-content`).value;
+            const status = document.getElementById(`${id}-status`);
+            
+            status.innerText = 'Saving...';
+            status.className = 'text-xs font-medium text-blue-500 ml-2';
+            
+            try {
+                const success = await apiSaveFile(filename, content);
+                if(success) {
+                    status.innerText = 'Saved successfully!';
+                    status.className = 'text-xs font-medium text-green-600 ml-2';
+                    setTimeout(() => status.innerText = '', 2000);
+                    if(document.getElementById('app-filemanager')) refreshFileManager();
+                } else {
+                    throw new Error();
+                }
+            } catch(e) {
+                status.innerText = 'Error saving.';
+                status.className = 'text-xs font-medium text-red-500 ml-2';
+            }
+        }
+
+        // Web Browser App
+        function openBrowser() {
+            // Using a safe default embeddable site
+            const defaultUrl = 'https://en.wikipedia.org/wiki/Main_Page';
+            createWindow('app-browser', '<i class="fas fa-compass text-indigo-500"></i> Web Browser', `
+                <div class="flex flex-col h-full bg-white">
+                    <div class="bg-gray-100 p-2 flex gap-2 border-b border-gray-300 items-center">
+                        <button class="text-gray-500 hover:text-gray-800 px-2 transition"><i class="fas fa-arrow-left"></i></button>
+                        <button class="text-gray-500 hover:text-gray-800 px-2 transition"><i class="fas fa-arrow-right"></i></button>
+                        <button onclick="document.getElementById('browser-frame').src = document.getElementById('browser-frame').src" class="text-gray-500 hover:text-gray-800 px-2 transition"><i class="fas fa-redo"></i></button>
+                        
+                        <div class="flex-1 flex bg-white border border-gray-300 rounded-full overflow-hidden px-3 py-1 focus-within:border-indigo-500 focus-within:ring-1 focus-within:ring-indigo-500 shadow-inner">
+                            <i class="fas fa-lock text-gray-400 text-xs mt-1 mr-2"></i>
+                            <input type="text" id="browser-url" value="${defaultUrl}" class="flex-1 text-sm focus:outline-none" onkeypress="if(event.key === 'Enter') navigateBrowser()">
+                        </div>
+                    </div>
+                    <!-- Notice banner -->
+                    <div class="bg-yellow-50 text-yellow-800 text-[10px] px-2 py-1 flex justify-between">
+                        <span>Note: Some external websites prevent being embedded inside browsers (X-Frame-Options).</span>
+                        <button onclick="this.parentElement.remove()"><i class="fas fa-times"></i></button>
+                    </div>
+                    <iframe id="browser-frame" src="${defaultUrl}" class="flex-1 w-full border-none bg-white"></iframe>
+                </div>
+            `, 150, 80, 800, 500);
+        }
+
+        function navigateBrowser() {
+            let url = document.getElementById('browser-url').value.trim();
+            if(!url) return;
+            if(!url.startsWith('http://') && !url.startsWith('https://')) {
+                url = 'https://' + url;
+                document.getElementById('browser-url').value = url;
+            }
+            document.getElementById('browser-frame').src = url;
+        }
+
+        // App Store App
+        function openAppStore() {
+            createWindow('app-store', '<i class="fas fa-store text-orange-500"></i> OS App Store', `
+                <div class="flex flex-col h-full bg-gray-50">
+                    <div class="p-6 border-b border-gray-200 bg-white">
+                        <h2 class="text-3xl font-extrabold bg-clip-text text-transparent bg-gradient-to-r from-orange-500 to-pink-500">Discover Apps</h2>
+                        <p class="text-gray-500 text-sm mt-1">Enhance your WebOS experience.</p>
+                    </div>
+                    <div class="p-6 grid grid-cols-2 md:grid-cols-3 gap-6 flex-1 overflow-y-auto">
+                        ${createAppStoreCard('Calculator', 'fas fa-calculator', 'bg-blue-100 text-blue-600', 'Basic math operations', 'Free')}
+                        ${createAppStoreCard('Paint', 'fas fa-paint-brush', 'bg-purple-100 text-purple-600', 'Digital canvas tool', 'Free')}
+                        ${createAppStoreCard('Terminal', 'fas fa-terminal', 'bg-gray-800 text-green-400', 'Command line interface', 'Free')}
+                        ${createAppStoreCard('Music Player', 'fas fa-music', 'bg-pink-100 text-pink-600', 'Listen to your tunes', '$1.99')}
+                        ${createAppStoreCard('Games Pack', 'fas fa-gamepad', 'bg-red-100 text-red-600', 'Solitaire & Minesweeper', '$4.99')}
+                        ${createAppStoreCard('Video Editor', 'fas fa-video', 'bg-indigo-100 text-indigo-600', 'Edit clips easily', '$9.99')}
+                    </div>
+                </div>
+            `, 200, 100, 700, 500);
+        }
+
+        function createAppStoreCard(name, icon, iconColors, desc, price) {
+            return `
+                <div class="bg-white p-5 rounded-2xl shadow-sm border border-gray-100 flex flex-col items-center text-center gap-3 hover:shadow-md transition group">
+                    <div class="w-16 h-16 ${iconColors} rounded-2xl flex items-center justify-center text-2xl group-hover:scale-110 transition-transform duration-300">
+                        <i class="${icon}"></i>
+                    </div>
+                    <div class="flex-1">
+                        <h3 class="font-bold text-gray-800">${name}</h3>
+                        <p class="text-xs text-gray-500 mt-1">${desc}</p>
+                    </div>
+                    <button onclick="installApp('${name}')" class="w-full mt-2 bg-gray-100 hover:bg-blue-500 hover:text-white text-blue-600 font-bold py-1.5 rounded-full text-sm transition-colors duration-200">${price === 'Free' ? 'GET' : price}</button>
+                </div>
+            `;
+        }
+
+        function installApp(appName) {
+            showModal('App Store Notice', `The App Store is currently in demo mode. \n\nInstallation for "${appName}" is disabled at this time. Check back in a future OS update!`);
+        }
+
+        // --- 5. UI UTILS ---
+        
+        // Start Menu Toggle
+        function toggleStartMenu() {
+            const menu = document.getElementById('start-menu');
+            menu.classList.toggle('hidden');
+        }
+
+        // Close start menu when clicking outside
+        document.addEventListener('mousedown', (e) => {
+            const menu = document.getElementById('start-menu');
+            if(!menu.classList.contains('hidden') && !e.target.closest('#start-menu') && !e.target.closest('.fa-windows')) {
+                menu.classList.add('hidden');
+            }
+        });
+
+        // Clock Update Loop
+        setInterval(() => {
+            const now = new Date();
+            document.getElementById('clock').innerText = now.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
+        }, 1000);
+
+    </script>
+</body>
+</html>

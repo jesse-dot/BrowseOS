@@ -1,0 +1,12 @@
+{
+  "name": "node-web-os",
+  "version": "1.0.0",
+  "description": "A web-based OS with a Node.js backend",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.18.2"
+  }
+}
