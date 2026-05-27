@@ -4,6 +4,9 @@ const path = require('path');
 
 const app = express();
 const PORT = 3000;
+const API_WINDOW_MS = 60 * 1000;
+const API_MAX_REQUESTS = 60;
+const apiRequestCounts = new Map();
 
 // Middleware to parse JSON bodies and serve static frontend files
 app.use(express.json());
@@ -14,10 +17,21 @@ const STORAGE_DIR = path.join(__dirname, 'os_storage');
 const USERS_DIR = path.join(STORAGE_DIR, 'users');
 
 function sanitizeUserName(name) {
-    const safeName = String(name || 'guest')
-        .trim()
-        .replace(/[^a-zA-Z0-9._-]+/g, '-')
-        .replace(/^-+|-+$/g, '');
+    const raw = String(name || 'guest').trim();
+    let safeName = '';
+    for (const ch of raw) {
+        if (
+            (ch >= 'a' && ch <= 'z') ||
+            (ch >= 'A' && ch <= 'Z') ||
+            (ch >= '0' && ch <= '9') ||
+            ch === '.' || ch === '_' || ch === '-'
+        ) {
+            safeName += ch;
+        } else {
+            safeName += '-';
+        }
+    }
+    safeName = safeName.replace(/^-+|-+$/g, '');
     return safeName || 'guest';
 }
 
@@ -40,6 +54,24 @@ async function listUsers() {
     const entries = await fs.readdir(USERS_DIR, { withFileTypes: true });
     return entries.filter(entry => entry.isDirectory()).map(entry => entry.name).sort();
 }
+
+app.use('/api', (req, res, next) => {
+    const key = req.ip || req.socket.remoteAddress || 'unknown';
+    const now = Date.now();
+    const record = apiRequestCounts.get(key);
+
+    if (!record || now - record.startedAt >= API_WINDOW_MS) {
+        apiRequestCounts.set(key, { startedAt: now, count: 1 });
+        return next();
+    }
+
+    if (record.count >= API_MAX_REQUESTS) {
+        return res.status(429).json({ error: 'Too many requests' });
+    }
+
+    record.count += 1;
+    next();
+});
 
 // Initialize the storage directory when the server starts
 async function initStorage() {

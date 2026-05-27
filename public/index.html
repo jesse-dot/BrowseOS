@@ -464,9 +464,15 @@
                 } catch (e) {}
             }
 
-            list.innerHTML = users.map(user => `
-                <button onclick="setActiveUser('${user.replace(/'/g, "\\'")}')" class="px-3 py-1.5 rounded-full border text-sm ${user === currentUser ? 'bg-emerald-500 text-white border-emerald-500' : 'bg-gray-50 hover:bg-gray-100 text-gray-700 border-gray-200'}">${user}</button>
-            `).join('');
+            list.innerHTML = '';
+            users.forEach(user => {
+                const button = document.createElement('button');
+                button.type = 'button';
+                button.className = `px-3 py-1.5 rounded-full border text-sm ${user === currentUser ? 'bg-emerald-500 text-white border-emerald-500' : 'bg-gray-50 hover:bg-gray-100 text-gray-700 border-gray-200'}`;
+                button.textContent = user;
+                button.onclick = () => setActiveUser(user);
+                list.appendChild(button);
+            });
         }
 
         async function applyUserManagerSelection() {
